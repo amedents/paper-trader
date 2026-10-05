@@ -146,6 +146,16 @@ h2 span { font-weight: 400; color: var(--text-muted); letter-spacing: var(--tr-s
 .why { margin-top: var(--space-1); font-size: var(--fs-sm); line-height: var(--lh-sm); overflow-wrap: anywhere; }
 .reasons { margin-top: var(--space-1); color: var(--danger); font-size: var(--fs-sm); line-height: var(--lh-sm); overflow-wrap: anywhere; }
 
+/* A holding is an order card's sibling - same frame, same text edge - with its bar showing gain or loss since
+   entry. Its lines do not wrap as rows: a long fund name wraps inside its own span and the value stays right. */
+.op.hold.gain::before { background: var(--success); }
+.op.hold.loss::before { background: var(--danger); }
+.op.hold.even::before { background: var(--border-strong); }
+.hold .opline { flex-wrap: nowrap; }
+.hold .opline > :last-child { flex: none; white-space: nowrap; }
+.hold .val { font-weight: 600; }
+.hold .nm { color: var(--text-muted); }
+
 footer { margin-top: var(--space-12); padding-top: var(--space-4); border-top: 1px solid var(--border);
   display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); color: var(--text-muted);
   font-size: var(--fs-sm); line-height: var(--lh-sm); }
@@ -315,6 +325,23 @@ function opHtml(o) {
   return h + "</div>";
 }
 
+/* Holdings are the account now, not a day's record, so only the latest day shows them (snapshot.py). */
+function holdHtml(x) {
+  var line = qty(x.qty) + " × " + (x.price != null ? USD0.format(x.price) : "—") + (x.type ? " · " + x.type : "");
+  return '<div class="op hold ' + (x.pl > 0 ? "gain" : x.pl < 0 ? "loss" : "even") + '">'
+    + '<div class="opline"><span><span class="what">' + esc(x.sym) + "</span>"
+    + (x.name ? ' <span class="nm">' + esc(x.name) + "</span>" : "") + "</span>"
+    + '<span class="val">' + esc(x.value != null ? minus(USD0.format(x.value)) : "—") + "</span></div>"
+    + '<div class="opline meta"><span>' + esc(line) + '</span><span class="' + signClass(x.pl) + '">'
+    + esc(money(x.pl)) + "</span></div></div>";
+}
+function holdingsHtml(hs) {
+  if (!hs) return "";
+  var total = hs.reduce(function (a, x) { return a + (x.value || 0); }, 0);
+  return "<section><h2>Holdings<span>" + esc(hs.length ? minus(USD0.format(total)) : "none") + "</span></h2>"
+    + hs.map(holdHtml).join("") + "</section>";
+}
+
 function dayHtml(d) {
   var h = "", used = {};
   var phases = {};
@@ -375,7 +402,7 @@ function render() {
     el("pl").className = signClass(d.pl);
     el("pct").textContent = pct(d.pl_pct);
     el("eq").textContent = d.equity != null ? "equity " + USD0.format(d.equity) : "";
-    el("body").innerHTML = dayHtml(d);
+    el("body").innerHTML = (idx === snap.days.length - 1 ? holdingsHtml(snap.holdings) : "") + dayHtml(d);
   }
   var acc = snap.account;
   el("total").innerHTML = acc ? 'since start <b class="' + signClass(acc.since_start) + '">' + esc(money(acc.since_start)) + "</b>" : "";
@@ -440,6 +467,12 @@ function selfCheck() {
     if (d.pl > 0 && (p.className !== "up" || p.textContent.charAt(0) !== "+")) bad.push(d.date + " gain not green with +");
     if (d.pl < 0 && (p.className !== "down" || p.textContent.charAt(0) !== "−")) bad.push(d.date + " loss not red with −");
     if (el("date").textContent.indexOf(String(+d.date.slice(8))) < 0) bad.push(d.date + " date label is " + el("date").textContent);
+    var hs = i === snap.days.length - 1 && snap.holdings ? snap.holdings : [], shown = el("body").querySelectorAll(".hold").length;
+    if (shown !== hs.length) bad.push(d.date + " shows " + shown + " holdings, not " + hs.length);
+    if (hs.length) {
+      var sum = minus(USD0.format(hs.reduce(function (a, x) { return a + x.value; }, 0))), h2 = el("body").querySelector("h2 span");
+      if (!h2 || h2.textContent !== sum) bad.push("holdings total reads " + (h2 && h2.textContent) + ", not " + sum);
+    }
     bad = bad.concat(overflow().map(function (s) { return d.date + ": " + s; }));
   }
   go(snap.days.length - 1);
@@ -543,7 +576,7 @@ el("unpair").addEventListener("click", function (ev) {
 <script>if ("serviceWorker" in navigator && !(window.chrome && window.chrome.webview)) { navigator.serviceWorker.register("sw.js").catch(function () {}); }</script>
 <script>
 (function () {
-  var BUILD = "20261004143335";
+  var BUILD = "20261005214312";
   if (BUILD.indexOf("APP_BUILD") > -1) return;
   var busy = false;
   function check() {
